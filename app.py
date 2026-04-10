@@ -45,7 +45,7 @@ spotify_clustering_scaled = load_and_prepare_data()
 
 # Sidebar for user input
 st.sidebar.header("Settings")
-max_clusters = st.sidebar.slider("Maximum number of clusters to test:", 5, 30, 20)
+max_clusters = st.sidebar.slider("Maximum number of clusters to test:", 5, 30, 19)
 
 # Calculate inertias
 @st.cache_data
