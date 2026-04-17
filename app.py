@@ -269,58 +269,77 @@ with tab3:
     train_som = st.button("Train SOM")
 
     if train_som:
-        som = SelfOrganizingMap(
-            som_rows,
-            som_cols,
-            spotify_clustering_scaled.shape[1],
-            learning_rate=0.5,
-            sigma=max(som_rows, som_cols) / 2.0,
-            random_seed=0
-        )
-        som.train(spotify_clustering_scaled, num_iterations=num_iterations)
-        mapped = som.map_vects(spotify_clustering_scaled)
-        som_labels = mapped[:, 0] * som_cols + mapped[:, 1]
+        with st.spinner('Training SOM...'):
+            som = SelfOrganizingMap(
+                som_rows,
+                som_cols,
+                spotify_clustering_scaled.shape[1],
+                learning_rate=0.5,
+                sigma=max(som_rows, som_cols) / 2.0,
+                random_seed=0
+            )
+            som.train(spotify_clustering_scaled, num_iterations=num_iterations)
+            mapped = som.map_vects(spotify_clustering_scaled)
+            som_labels = mapped[:, 0] * som_cols + mapped[:, 1]
+            
+            # Store in session state
+            st.session_state.som_trained = True
+            st.session_state.som = som
+            st.session_state.som_labels = som_labels
+            st.session_state.som_rows = som_rows
+            st.session_state.som_cols = som_cols
 
-        st.subheader("SOM Neuron Assignments")
+    # Display visualizations if SOM is trained
+    if 'som_trained' in st.session_state and st.session_state.som_trained:
+        som = st.session_state.som
+        som_labels = st.session_state.som_labels
+        som_rows = st.session_state.som_rows
+        som_cols = st.session_state.som_cols
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Distance Map (U-Matrix)")
+            umatrix = som.u_matrix()
+            fig_umatrix, ax_umatrix = plt.subplots(figsize=(8, 7))
+            im_u = ax_umatrix.imshow(umatrix, cmap='viridis', origin='lower', aspect='auto')
+            ax_umatrix.set_title('SOM U-Matrix (Distance Map)', fontsize=13, fontweight='bold')
+            ax_umatrix.set_xlabel('Grid Column', fontsize=11)
+            ax_umatrix.set_ylabel('Grid Row', fontsize=11)
+            cbar_u = plt.colorbar(im_u, ax=ax_umatrix, label='Neighbor Distance')
+            plt.tight_layout()
+            st.pyplot(fig_umatrix)
+        
+        with col2:
+            st.subheader("Neuron Population Grid")
+            som_map = np.zeros((som_rows, som_cols))
+            for idx, label in enumerate(som_labels):
+                row = int(label // som_cols)
+                col = int(label % som_cols)
+                som_map[row, col] += 1
+            
+            fig_pop, ax_pop = plt.subplots(figsize=(8, 7))
+            im_pop = ax_pop.imshow(som_map, cmap='YlOrRd', origin='lower', aspect='auto')
+            ax_pop.set_title('SOM Data Point Distribution', fontsize=13, fontweight='bold')
+            ax_pop.set_xlabel('Grid Column', fontsize=11)
+            ax_pop.set_ylabel('Grid Row', fontsize=11)
+            cbar_pop = plt.colorbar(im_pop, ax=ax_pop, label='Sample Count')
+            
+            # Add text annotations with adaptive coloring
+            for i in range(som_rows):
+                for j in range(som_cols):
+                    count = int(som_map[i, j])
+                    text_color = 'white' if count > som_map.max() / 2 else 'black'
+                    ax_pop.text(j, i, count, ha="center", va="center", 
+                               color=text_color, fontsize=7, fontweight='bold')
+            
+            plt.tight_layout()
+            st.pyplot(fig_pop)
+        
+        st.divider()
         assignment_counts = pd.Series(som_labels).value_counts().sort_index()
-        assignment_df = pd.DataFrame({
-            'Neuron ID': assignment_counts.index,
-            'Mapped Samples': assignment_counts.values
-        })
-        st.dataframe(assignment_df.head(12), use_container_width=True, hide_index=True)
-
         most_populated = assignment_counts.nlargest(5)
         st.write("**Top 5 Most Populated Neurons:**")
-        st.write(most_populated)
+        for rank, (neuron_id, count) in enumerate(most_populated.items(), 1):
+            st.metric(f"#{rank}", f"Neuron {int(neuron_id)}", f"{count} samples")
 
-        pca = PCA(n_components=2)
-        pca_data = pca.fit_transform(spotify_clustering_scaled)
-        pca_df = pd.DataFrame(pca_data, columns=['PC1', 'PC2'])
-        pca_df['neuron'] = som_labels
-
-        st.subheader("SOM Projection (PCA)")
-        fig, ax = plt.subplots(figsize=(8, 6))
-        scatter = ax.scatter(
-            pca_df['PC1'],
-            pca_df['PC2'],
-            c=pca_df['neuron'],
-            cmap='tab20',
-            alpha=0.7,
-            s=30
-        )
-        ax.set_title('SOM Node Assignments in PCA Space')
-        ax.set_xlabel('PC1')
-        ax.set_ylabel('PC2')
-        cbar = plt.colorbar(scatter, ax=ax)
-        cbar.set_label('SOM neuron id')
-        st.pyplot(fig)
-
-        st.subheader("SOM U-Matrix")
-        umatrix = som.u_matrix()
-        fig2, ax2 = plt.subplots(figsize=(8, 6))
-        im = ax2.imshow(umatrix, cmap='viridis', origin='lower')
-        ax2.set_title('SOM U-Matrix')
-        ax2.set_xlabel('Neuron column')
-        ax2.set_ylabel('Neuron row')
-        fig2.colorbar(im, ax=ax2, label='Average neighbor distance')
-        st.pyplot(fig2)
