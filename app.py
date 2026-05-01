@@ -4,9 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.preprocessing import RobustScaler
-from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
-import umap
 
 # Set page config
 st.set_page_config(page_title="Spotify Clustering - Elbow Method", layout="wide")
@@ -85,7 +83,7 @@ class SelfOrganizingMap:
 spotify_clustering_scaled, spotify_clustering, scaler = load_and_prepare_data()
 
 # Create tabs
-tab1, tab2, tab3 = st.tabs(["Elbow Method", "Cluster Analysis", "SOM Analysis"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Elbow Method", "K=2 Metrics & Radar", "Cluster Analysis", "Song Search", "SOM Analysis"])
 
 with tab1:
     # Sidebar for user input
@@ -178,14 +176,125 @@ with tab1:
         """)
 
 with tab2:
+    st.header("K=2 Metrics & Radar Map")
+    st.markdown("Detailed metrics and radar visualization for K=2 clustering.")
+    
+    # Perform K-means with k=2 (matching notebook parameters)
+    kmeans_k2 = KMeans(n_clusters=2, random_state=0)
+    clusters_k2 = kmeans_k2.fit_predict(spotify_clustering_scaled)
+    
+    # Get cluster labels
+    spotify_with_clusters_k2 = spotify_clustering.copy()
+    spotify_with_clusters_k2['cluster'] = clusters_k2
+    
+    # Cluster sizes
+    cluster_sizes_k2 = spotify_with_clusters_k2['cluster'].value_counts().sort_index()
+    
+    # Metrics for K=2
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Number of Clusters", "2")
+    with col2:
+        sil_score_k2 = silhouette_score(spotify_clustering_scaled, clusters_k2)
+        st.metric("Silhouette Score", f"{sil_score_k2:.4f}")
+    with col3:
+        st.metric("Inertia", f"{kmeans_k2.inertia_:,.0f}")
+    
+    st.divider()
+    
+    # Cluster sizes
+    st.subheader("Cluster Distribution")
+    sizes_df_k2 = pd.DataFrame({
+        'Cluster': cluster_sizes_k2.index,
+        'Number of Observations': cluster_sizes_k2.values,
+        'Percentage': [f"{(c/len(clusters_k2))*100:.1f}%" for c in cluster_sizes_k2.values]
+    })
+    st.dataframe(sizes_df_k2, use_container_width=True, hide_index=True)
+    
+    st.divider()
+    
+    # Radar map for both clusters
+    st.subheader("Radar Map - Cluster Comparison")
+    
+    # Get centroids in original scale
+    centroids_scaled_k2 = kmeans_k2.cluster_centers_
+    centroids_original_k2 = scaler.inverse_transform(centroids_scaled_k2)
+    
+    # Feature names for radar
+    feature_names = spotify_clustering.columns.tolist()
+    
+    # Normalize for radar chart (0-1 scale for visualization)
+    centroids_df_k2 = pd.DataFrame(centroids_original_k2, columns=feature_names)
+    centroids_df_k2.index = ['Cluster 0', 'Cluster 1']
+    
+    # Normalize each feature to 0-1 for radar
+    centroids_normalized = (centroids_df_k2 - centroids_df_k2.min()) / (centroids_df_k2.max() - centroids_df_k2.min())
+    
+    # Create radar chart
+    fig_radar, ax_radar = plt.subplots(figsize=(10, 8), subplot_kw=dict(polar=True))
+    
+    # Number of variables
+    num_vars = len(feature_names)
+    
+    # Compute angle for each axis
+    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+    angles += angles[:1]  # Complete the loop
+    
+    # Plot each cluster
+    colors = ['#1f77b4', '#ff7f0e']
+    cluster_labels = ['Cluster 0', 'Cluster 1']
+    
+    for idx, (cluster_name, row) in enumerate(centroids_normalized.iterrows()):
+        values = row.values.tolist()
+        values += values[:1]  # Complete the loop
+        ax_radar.plot(angles, values, 'o-', linewidth=2, label=cluster_name, color=colors[idx])
+        ax_radar.fill(angles, values, alpha=0.25, color=colors[idx])
+    
+    # Set the labels
+    ax_radar.set_xticks(angles[:-1])
+    ax_radar.set_xticklabels(feature_names, fontsize=10)
+    ax_radar.set_title('Radar Map: Cluster Comparison (K=2)', fontsize=14, fontweight='bold', pad=20)
+    ax_radar.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
+    
+    st.pyplot(fig_radar)
+    
+    st.divider()
+    
+    # Centroids table
+    st.subheader("Cluster Centroids (Original Scale)")
+    st.dataframe(centroids_df_k2, use_container_width=True)
+    
+    # Feature comparison bar chart
+    st.subheader("Feature Comparison")
+    fig_bar, ax_bar = plt.subplots(figsize=(12, 6))
+    
+    x = np.arange(len(feature_names))
+    width = 0.35
+    
+    bars1 = ax_bar.bar(x - width/2, centroids_df_k2.loc['Cluster 0'], width, label='Cluster 0', color='#1f77b4')
+    bars2 = ax_bar.bar(x + width/2, centroids_df_k2.loc['Cluster 1'], width, label='Cluster 1', color='#ff7f0e')
+    
+    ax_bar.set_xlabel('Features', fontsize=12)
+    ax_bar.set_ylabel('Value', fontsize=12)
+    ax_bar.set_title('Feature Values by Cluster (K=2)', fontsize=14, fontweight='bold')
+    ax_bar.set_xticks(x)
+    ax_bar.set_xticklabels(feature_names, rotation=45, ha='right')
+    ax_bar.legend()
+    ax_bar.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    st.pyplot(fig_bar)
+
+with tab3:
     st.header("Cluster Analysis")
     st.markdown("Choose the number of clusters (k) and analyze the resulting clusters.")
     
     # User input for k
     k = st.slider("Select number of clusters (k):", min_value=2, max_value=20, value=2, step=1)
     
-    # Perform K-means
-    kmeans = KMeans(n_clusters=k, random_state=0, n_init=10)
+    # Perform K-means (matching notebook parameters)
+    kmeans = KMeans(n_clusters=k, random_state=0)
     clusters = kmeans.fit_predict(spotify_clustering_scaled)
     
     # Add cluster labels to original data
@@ -219,41 +328,69 @@ with tab2:
     # Silhouette score
     sil_score = silhouette_score(spotify_clustering_scaled, clusters)
     st.metric("Silhouette Score", f"{sil_score:.4f}")
-    
-    st.divider()
-    
-    # UMAP visualization
-    st.subheader("UMAP Visualization")
-    with st.spinner('Computing UMAP projection...'):
-        umap_reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
-        umap_embeddings = umap_reducer.fit_transform(spotify_clustering_scaled)
-    
-    fig_umap, ax_umap = plt.subplots(figsize=(10, 8))
-    scatter = ax_umap.scatter(umap_embeddings[:, 0], umap_embeddings[:, 1], c=clusters, cmap='viridis', alpha=0.6, s=20)
-    ax_umap.scatter(kmeans.cluster_centers_[:, 0], kmeans.cluster_centers_[:, 1], c='red', marker='X', s=200, edgecolors='black', linewidths=2, label='Centroids')
-    ax_umap.set_xlabel('UMAP Component 1')
-    ax_umap.set_ylabel('UMAP Component 2')
-    ax_umap.set_title(f'UMAP Projection with KMeans Clustering (k={k})')
-    plt.colorbar(scatter, ax=ax_umap, label='Cluster')
-    ax_umap.legend()
-    st.pyplot(fig_umap)
-    
-    st.divider()
-    
-    # PCA visualization
-    st.subheader("PCA Visualization")
-    pca = PCA(n_components=2, random_state=42)
-    pca_embeddings = pca.fit_transform(spotify_clustering_scaled)
-    
-    fig_pca, ax_pca = plt.subplots(figsize=(10, 8))
-    scatter_pca = ax_pca.scatter(pca_embeddings[:, 0], pca_embeddings[:, 1], c=clusters, cmap='tab10', alpha=0.7, s=25)
-    ax_pca.set_xlabel('PCA Component 1')
-    ax_pca.set_ylabel('PCA Component 2')
-    ax_pca.set_title(f'KMeans Clusters on PCA Projection (k={k})')
-    plt.colorbar(scatter_pca, ax=ax_pca, label='Cluster')
-    st.pyplot(fig_pca)
 
-with tab3:
+with tab4:
+    st.header("Song Search System")
+    st.markdown("Search for a song by name and artist to see which cluster it belongs to.")
+    
+    # Define feature labels for display
+    FEATURE_LABELS = {
+        'popularity': 'Popularity',
+        'danceability': 'Danceability',
+        'energy': 'Energy',
+        'liveness': 'Liveness',
+        'valence': 'Valence',
+        'tempo': 'Tempo',
+        'log_speechiness': 'Speechiness',
+        'log_instrumentalness': 'Instrumentalness',
+        'log_duration_ms': 'Duration'
+    }
+    
+    # Radar features for display
+    radar_feats = ['popularity', 'danceability', 'energy', 'liveness', 'valence', 'tempo']
+    
+    # Load original data for search
+    @st.cache_data
+    def load_original_data():
+        df = pd.read_csv("dataset.csv")
+        df.drop("Unnamed: 0", axis=1, inplace=True)
+        df.drop(df[df['artists'].isna()].index, axis=0, inplace=True)
+        df.reset_index(drop=True, inplace=True)
+        return df
+    
+    df_original = load_original_data()
+    
+    # Perform K-means with k=2 (matching notebook parameters)
+    kmeans_search = KMeans(n_clusters=2, random_state=0)
+    clusters_search = kmeans_search.fit_predict(spotify_clustering_scaled)
+    
+    # Create dataframe with clusters
+    df_with_clusters = spotify_clustering.copy()
+    df_with_clusters['cluster'] = clusters_search
+    df_with_clusters['name'] = df_original['track_name'].values
+    df_with_clusters['artists'] = df_original['artists'].values
+    
+    # ── Track explorer ────────────────────────────────────────────────────
+    st.subheader("🔍 Track Explorer")
+    st.markdown("Search any track name or artist to see which cluster it belongs to and how it compares to the centroid.")
+
+    search = st.text_input("Search by track name or artist", placeholder="e.g. Dua Lipa / Blinding Lights")
+    if search:
+        mask = (
+            df_with_clusters["name"].str.contains(search, case=False, na=False) |
+            df_with_clusters["artists"].str.contains(search, case=False, na=False)
+        )
+        results = df_with_clusters[mask][["name", "artists", "cluster"] + radar_feats].head(20)
+        if len(results):
+            results["cluster"] = results["cluster"].apply(
+                lambda c: f"Cluster {c}"
+            )
+            st.dataframe(results.rename(columns=FEATURE_LABELS | {"name": "Track", "artists": "Artists", "cluster": "Cluster"}),
+                         use_container_width=True, hide_index=True)
+        else:
+            st.warning("No tracks found. Try a different search term.")
+
+with tab5:
     st.header("Self-Organizing Map (SOM)")
     st.markdown("Use a SOM grid to organize the Spotify tracks by similarity and visualize neuron assignments.")
 
