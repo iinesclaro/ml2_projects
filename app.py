@@ -37,6 +37,11 @@ def load_and_prepare_data():
     
     return spotify_clustering_scaled, spotify_clustering, scaler
 
+@st.cache_data
+def compute_assignment_counts_cached(som_labels):
+    assignment_counts = pd.Series(som_labels).value_counts().sort_index()
+    return assignment_counts
+
 class SelfOrganizingMap:
     def __init__(self, m, n, dim, learning_rate=0.5, sigma=None, random_seed=None):
         self.m = m
@@ -79,11 +84,39 @@ class SelfOrganizingMap:
             umatrix[idx] = np.mean(neighbor_dists) if neighbor_dists else 0
         return umatrix.reshape(self.m, self.n)
 
+@st.cache_data
+def train_som_cached(som_rows, som_cols, num_iterations, data):
+    som = SelfOrganizingMap(
+        som_rows,
+        som_cols,
+        data.shape[1],
+        learning_rate=0.5,
+        sigma=max(som_rows, som_cols) / 2.0,
+        random_seed=0
+    )
+    som.train(data, num_iterations=num_iterations)
+    mapped = som.map_vects(data)
+    som_labels = mapped[:, 0] * som_cols + mapped[:, 1]
+    return som, mapped, som_labels
+
+@st.cache_data
+def compute_u_matrix_cached(som):
+    return som.u_matrix()
+
+@st.cache_data
+def compute_population_grid_cached(som_labels, som_rows, som_cols):
+    som_map = np.zeros((som_rows, som_cols))
+    for idx, label in enumerate(som_labels):
+        row = int(label // som_cols)
+        col = int(label % som_cols)
+        som_map[row, col] += 1
+    return som_map
+
 # Load data
 spotify_clustering_scaled, spotify_clustering, scaler = load_and_prepare_data()
 
 # Create tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Elbow Method", "K=2 Metrics & Radar", "Cluster Analysis", "Song Search", "SOM Analysis"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Elbow Method", "K=6 Metrics & Radar", "Cluster Analysis", "Song Search", "SOM Analysis"])
 
 with tab1:
     # Sidebar for user input
@@ -140,12 +173,11 @@ with tab1:
 
     with col2:
         st.subheader("Candidate K Values")
-        # Find best K by silhouette
-        best_k = np.argmax(silhouettes) + 2
+        # Recommend best K based on the elbow
         st.metric(
-            "Best K (Silhouette)",
-            f"K = {best_k}",
-            f"Silhouette: {silhouettes[best_k-2]:.4f}"
+            "Best K (Elbow)",
+            "K = 6",
+            "Recommended candidate based on elbow analysis"
         )
 
     st.divider()
@@ -176,63 +208,64 @@ with tab1:
         """)
 
 with tab2:
-    st.header("K=2 Metrics & Radar Map")
-    st.markdown("Detailed metrics and radar visualization for K=2 clustering.")
+    st.header("K=6 Metrics & Radar Map")
+    st.markdown("Detailed metrics and radar visualization for K=6 clustering.")
     
-    # Perform K-means with k=2 (matching notebook parameters)
-    kmeans_k2 = KMeans(n_clusters=2, random_state=0)
-    clusters_k2 = kmeans_k2.fit_predict(spotify_clustering_scaled)
+    # Perform K-means with k=6
+    k6 = 6
+    kmeans_k6 = KMeans(n_clusters=k6, random_state=0)
+    clusters_k6 = kmeans_k6.fit_predict(spotify_clustering_scaled)
     
     # Get cluster labels
-    spotify_with_clusters_k2 = spotify_clustering.copy()
-    spotify_with_clusters_k2['cluster'] = clusters_k2
+    spotify_with_clusters_k6 = spotify_clustering.copy()
+    spotify_with_clusters_k6['cluster'] = clusters_k6
     
     # Cluster sizes
-    cluster_sizes_k2 = spotify_with_clusters_k2['cluster'].value_counts().sort_index()
+    cluster_sizes_k6 = spotify_with_clusters_k6['cluster'].value_counts().sort_index()
     
-    # Metrics for K=2
+    # Metrics for K=6
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.metric("Number of Clusters", "2")
+        st.metric("Number of Clusters", f"{k6}")
     with col2:
-        sil_score_k2 = silhouette_score(spotify_clustering_scaled, clusters_k2)
-        st.metric("Silhouette Score", f"{sil_score_k2:.4f}")
+        sil_score_k6 = silhouette_score(spotify_clustering_scaled, clusters_k6)
+        st.metric("Silhouette Score", f"{sil_score_k6:.4f}")
     with col3:
-        st.metric("Inertia", f"{kmeans_k2.inertia_:,.0f}")
+        st.metric("Inertia", f"{kmeans_k6.inertia_:,.0f}")
     
     st.divider()
     
     # Cluster sizes
     st.subheader("Cluster Distribution")
-    sizes_df_k2 = pd.DataFrame({
-        'Cluster': cluster_sizes_k2.index,
-        'Number of Observations': cluster_sizes_k2.values,
-        'Percentage': [f"{(c/len(clusters_k2))*100:.1f}%" for c in cluster_sizes_k2.values]
+    sizes_df_k6 = pd.DataFrame({
+        'Cluster': cluster_sizes_k6.index,
+        'Number of Observations': cluster_sizes_k6.values,
+        'Percentage': [f"{(c/len(clusters_k6))*100:.1f}%" for c in cluster_sizes_k6.values]
     })
-    st.dataframe(sizes_df_k2, use_container_width=True, hide_index=True)
+    st.dataframe(sizes_df_k6, use_container_width=True, hide_index=True)
     
     st.divider()
     
-    # Radar map for both clusters
+    # Radar map for cluster comparison
     st.subheader("Radar Map - Cluster Comparison")
     
     # Get centroids in original scale
-    centroids_scaled_k2 = kmeans_k2.cluster_centers_
-    centroids_original_k2 = scaler.inverse_transform(centroids_scaled_k2)
+    centroids_scaled_k6 = kmeans_k6.cluster_centers_
+    centroids_original_k6 = scaler.inverse_transform(centroids_scaled_k6)
     
     # Feature names for radar
     feature_names = spotify_clustering.columns.tolist()
     
     # Normalize for radar chart (0-1 scale for visualization)
-    centroids_df_k2 = pd.DataFrame(centroids_original_k2, columns=feature_names)
-    centroids_df_k2.index = ['Cluster 0', 'Cluster 1']
+    centroids_df_k6 = pd.DataFrame(centroids_original_k6, columns=feature_names)
+    centroids_df_k6.index = [f'Cluster {i}' for i in range(k6)]
     
     # Normalize each feature to 0-1 for radar
-    centroids_normalized = (centroids_df_k2 - centroids_df_k2.min()) / (centroids_df_k2.max() - centroids_df_k2.min())
+    centroids_normalized = (centroids_df_k6 - centroids_df_k6.min()) / (centroids_df_k6.max() - centroids_df_k6.min())
     
     # Create radar chart
-    fig_radar, ax_radar = plt.subplots(figsize=(10, 8), subplot_kw=dict(polar=True))
+    fig_radar, ax_radar = plt.subplots(figsize=(12, 10), subplot_kw=dict(polar=True))
     
     # Number of variables
     num_vars = len(feature_names)
@@ -242,20 +275,19 @@ with tab2:
     angles += angles[:1]  # Complete the loop
     
     # Plot each cluster
-    colors = ['#1f77b4', '#ff7f0e']
-    cluster_labels = ['Cluster 0', 'Cluster 1']
+    colors = plt.cm.tab10(np.linspace(0, 1, k6))
     
     for idx, (cluster_name, row) in enumerate(centroids_normalized.iterrows()):
         values = row.values.tolist()
         values += values[:1]  # Complete the loop
         ax_radar.plot(angles, values, 'o-', linewidth=2, label=cluster_name, color=colors[idx])
-        ax_radar.fill(angles, values, alpha=0.25, color=colors[idx])
+        ax_radar.fill(angles, values, alpha=0.15, color=colors[idx])
     
     # Set the labels
     ax_radar.set_xticks(angles[:-1])
     ax_radar.set_xticklabels(feature_names, fontsize=10)
-    ax_radar.set_title('Radar Map: Cluster Comparison (K=2)', fontsize=14, fontweight='bold', pad=20)
-    ax_radar.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
+    ax_radar.set_title('Radar Map: Cluster Comparison (K=6)', fontsize=16, fontweight='bold', pad=20)
+    ax_radar.legend(loc='upper right', bbox_to_anchor=(1.4, 1.0), fontsize='small')
     
     st.pyplot(fig_radar)
     
@@ -263,28 +295,24 @@ with tab2:
     
     # Centroids table
     st.subheader("Cluster Centroids (Original Scale)")
-    st.dataframe(centroids_df_k2, use_container_width=True)
+    st.dataframe(centroids_df_k6, use_container_width=True)
     
-    # Feature comparison bar chart
+    # Feature comparison plot
     st.subheader("Feature Comparison")
-    fig_bar, ax_bar = plt.subplots(figsize=(12, 6))
+    fig_comparison, ax_comparison = plt.subplots(figsize=(12, 6))
+    for idx, (cluster_name, row) in enumerate(centroids_df_k6.iterrows()):
+        ax_comparison.plot(feature_names, row.values, marker='o', label=cluster_name, color=colors[idx])
     
-    x = np.arange(len(feature_names))
-    width = 0.35
-    
-    bars1 = ax_bar.bar(x - width/2, centroids_df_k2.loc['Cluster 0'], width, label='Cluster 0', color='#1f77b4')
-    bars2 = ax_bar.bar(x + width/2, centroids_df_k2.loc['Cluster 1'], width, label='Cluster 1', color='#ff7f0e')
-    
-    ax_bar.set_xlabel('Features', fontsize=12)
-    ax_bar.set_ylabel('Value', fontsize=12)
-    ax_bar.set_title('Feature Values by Cluster (K=2)', fontsize=14, fontweight='bold')
-    ax_bar.set_xticks(x)
-    ax_bar.set_xticklabels(feature_names, rotation=45, ha='right')
-    ax_bar.legend()
-    ax_bar.grid(True, alpha=0.3, axis='y')
+    ax_comparison.set_xlabel('Features', fontsize=12)
+    ax_comparison.set_ylabel('Value', fontsize=12)
+    ax_comparison.set_title('Feature Values by Cluster (K=6)', fontsize=16, fontweight='bold')
+    ax_comparison.set_xticks(range(len(feature_names)))
+    ax_comparison.set_xticklabels(feature_names, rotation=45, ha='right')
+    ax_comparison.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=4, fontsize='small')
+    ax_comparison.grid(True, alpha=0.3, axis='y')
     
     plt.tight_layout()
-    st.pyplot(fig_bar)
+    st.pyplot(fig_comparison)
 
 with tab3:
     st.header("Cluster Analysis")
@@ -360,8 +388,8 @@ with tab4:
     
     df_original = load_original_data()
     
-    # Perform K-means with k=2 (matching notebook parameters)
-    kmeans_search = KMeans(n_clusters=2, random_state=0)
+    # Perform K-means with k=6
+    kmeans_search = KMeans(n_clusters=6, random_state=0)
     clusters_search = kmeans_search.fit_predict(spotify_clustering_scaled)
     
     # Create dataframe with clusters
@@ -397,21 +425,41 @@ with tab5:
     som_rows = st.slider("SOM grid rows:", min_value=5, max_value=20, value=10, step=1)
     som_cols = st.slider("SOM grid columns:", min_value=5, max_value=20, value=10, step=1)
     num_iterations = st.slider("Training iterations:", min_value=10, max_value=300, value=120, step=10)
+    
+    # Check if parameters have changed since last training
+    params_changed = (
+        'som_rows' not in st.session_state or st.session_state.som_rows != som_rows or
+        'som_cols' not in st.session_state or st.session_state.som_cols != som_cols or
+        'num_iterations' not in st.session_state or st.session_state.num_iterations != num_iterations
+    )
+    
+    if params_changed and 'som_trained' in st.session_state:
+        # Clear previous training results if parameters changed
+        del st.session_state.som_trained
+        if 'som' in st.session_state:
+            del st.session_state.som
+        if 'som_labels' in st.session_state:
+            del st.session_state.som_labels
+        if 'som_rows' in st.session_state:
+            del st.session_state.som_rows
+        if 'som_cols' in st.session_state:
+            del st.session_state.som_cols
+        if 'num_iterations' in st.session_state:
+            del st.session_state.num_iterations
+    
     train_som = st.button("Train SOM")
+    
+    # Show current parameter status
+    if 'som_trained' in st.session_state and st.session_state.som_trained:
+        st.success(f"✅ SOM trained with {st.session_state.som_rows}×{st.session_state.som_cols} grid, {st.session_state.num_iterations} iterations")
+    elif params_changed:
+        st.info("ℹ️ Parameters changed. Click 'Train SOM' to train with new settings.")
+    else:
+        st.info("ℹ️ Adjust parameters and click 'Train SOM' to start training.")
 
     if train_som:
         with st.spinner('Training SOM...'):
-            som = SelfOrganizingMap(
-                som_rows,
-                som_cols,
-                spotify_clustering_scaled.shape[1],
-                learning_rate=0.5,
-                sigma=max(som_rows, som_cols) / 2.0,
-                random_seed=0
-            )
-            som.train(spotify_clustering_scaled, num_iterations=num_iterations)
-            mapped = som.map_vects(spotify_clustering_scaled)
-            som_labels = mapped[:, 0] * som_cols + mapped[:, 1]
+            som, mapped, som_labels = train_som_cached(som_rows, som_cols, num_iterations, spotify_clustering_scaled)
             
             # Store in session state
             st.session_state.som_trained = True
@@ -419,6 +467,7 @@ with tab5:
             st.session_state.som_labels = som_labels
             st.session_state.som_rows = som_rows
             st.session_state.som_cols = som_cols
+            st.session_state.num_iterations = num_iterations
 
     # Display visualizations if SOM is trained
     if 'som_trained' in st.session_state and st.session_state.som_trained:
@@ -431,7 +480,7 @@ with tab5:
         
         with col1:
             st.subheader("Distance Map (U-Matrix)")
-            umatrix = som.u_matrix()
+            umatrix = compute_u_matrix_cached(som)
             fig_umatrix, ax_umatrix = plt.subplots(figsize=(8, 7))
             im_u = ax_umatrix.imshow(umatrix, cmap='viridis', origin='lower', aspect='auto')
             ax_umatrix.set_title('SOM U-Matrix (Distance Map)', fontsize=13, fontweight='bold')
@@ -443,12 +492,7 @@ with tab5:
         
         with col2:
             st.subheader("Neuron Population Grid")
-            som_map = np.zeros((som_rows, som_cols))
-            for idx, label in enumerate(som_labels):
-                row = int(label // som_cols)
-                col = int(label % som_cols)
-                som_map[row, col] += 1
-            
+            som_map = compute_population_grid_cached(som_labels, som_rows, som_cols)
             fig_pop, ax_pop = plt.subplots(figsize=(8, 7))
             im_pop = ax_pop.imshow(som_map, cmap='YlOrRd', origin='lower', aspect='auto')
             ax_pop.set_title('SOM Data Point Distribution', fontsize=13, fontweight='bold')
@@ -468,7 +512,7 @@ with tab5:
             st.pyplot(fig_pop)
         
         st.divider()
-        assignment_counts = pd.Series(som_labels).value_counts().sort_index()
+        assignment_counts = compute_assignment_counts_cached(som_labels)
         most_populated = assignment_counts.nlargest(5)
         st.write("**Top 5 Most Populated Neurons:**")
         for rank, (neuron_id, count) in enumerate(most_populated.items(), 1):
