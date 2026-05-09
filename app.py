@@ -238,7 +238,7 @@ with tab2:
     sizes  = df_k6["cluster"].value_counts().sort_index()
 
     dist_df = pd.DataFrame({
-        "Cluster":       [f"{CLUSTER_NAMES[i]}  (C{i})" for i in sizes.index],
+        "Cluster":       [f"{CLUSTER_NAMES[i]}" for i in sizes.index],
         "Observations":  sizes.values,
         "Share (%)":     [f"{v/len(labels_k6)*100:.1f}%" for v in sizes.values],
     })
@@ -268,7 +268,7 @@ with tab2:
                         margin-bottom: 8px;
                     ">
                         <div style="font-weight:700; font-size:1rem;">
-                            C{c_idx} · {CLUSTER_NAMES[c_idx]}
+                            {CLUSTER_NAMES[c_idx]}
                         </div>
                         <div style="font-size:0.85rem; margin-top:6px; color:#555;">
                             {CLUSTER_DESCRIPTIONS[c_idx]}
@@ -341,7 +341,7 @@ with tab2:
                 polar=dict(radialaxis=dict(visible=True, range=[0, 1], showticklabels=False)),
                 showlegend=True,
                 title=dict(
-                    text=f"C{c_idx} · {CLUSTER_NAMES[c_idx]}  ({n_obs:,} tracks)",
+                    text=f"{CLUSTER_NAMES[c_idx]}  ({n_obs:,} tracks)",
                     font=dict(size=13),
                 ),
                 height=380,
@@ -356,7 +356,7 @@ with tab2:
 
     st.markdown("#### Cluster Centroids (Original Scale)")
     cent_display = pd.DataFrame(centroids_orig, columns=feat_labels)
-    cent_display.index = [f"C{i} · {CLUSTER_NAMES[i]}" for i in range(6)]
+    cent_display.index = [f"{CLUSTER_NAMES[i]}" for i in range(6)]
     st.dataframe(cent_display.round(4), use_container_width=True)
 
 
@@ -389,7 +389,7 @@ with tab3:
 
     cluster_filter = st.multiselect(
         "Filter by cluster (leave empty for all):",
-        options=[f"C{i} · {CLUSTER_NAMES[i]}" for i in range(6)],
+        options=[f"{CLUSTER_NAMES[i]}" for i in range(6)],
         default=[],
         key="cluster_filter",
     )
@@ -414,7 +414,7 @@ with tab3:
             display_cols  = ["track", "artists", "cluster"] + radar_feats
             disp          = results[display_cols].copy().head(50)
             disp["cluster"] = disp["cluster"].apply(
-                lambda c: f"C{c} · {CLUSTER_NAMES[c]}"
+                lambda c: f"{CLUSTER_NAMES[c]}"
             )
             disp = disp.rename(columns={
                 "track": "Track", "artists": "Artists", "cluster": "Cluster",
@@ -449,7 +449,7 @@ with tab3:
                         fill="toself",
                         fillcolor=color.replace("rgb", "rgba").replace(")", ",0.15)"),
                         line=dict(color=color, width=2, dash="dot"),
-                        name=f"C{c_idx} · {CLUSTER_NAMES[c_idx]} centroid",
+                        name=f"{CLUSTER_NAMES[c_idx]} centroid",
                         customdata=np.append(centroid_vals, centroid_vals[0]).reshape(-1, 1),
                         hovertemplate="%{theta}: %{customdata[0]:.3f}<extra>Cluster centroid</extra>",
                     ))
@@ -465,7 +465,7 @@ with tab3:
                     ))
                     fig_track.update_layout(
                         polar=dict(radialaxis=dict(visible=True, range=[0, 1], showticklabels=False)),
-                        title=f"{selected_track[:50]}  →  C{c_idx} · {CLUSTER_NAMES[c_idx]}",
+                        title=f"{selected_track[:50]}  →  {CLUSTER_NAMES[c_idx]}",
                         height=420,
                     )
                     st.plotly_chart(fig_track, use_container_width=True)
