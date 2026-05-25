@@ -19,6 +19,7 @@ def load_data():
     df = pd.read_csv("dataset.csv")
     df.drop("Unnamed: 0", axis=1, inplace=True)
     df.drop(df[df["artists"].isna()].index, inplace=True)
+    df.drop_duplicates(inplace=True)
     df.reset_index(drop=True, inplace=True)
 
     features = ["popularity", "danceability", "energy", "liveness", "valence", "tempo"]
