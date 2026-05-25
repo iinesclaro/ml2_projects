@@ -58,32 +58,42 @@ def fit_kmeans_k6(scaled):
     return km, labels, sil
 
 
+def relabel_kmeans_by_popularity(km, labels, scaler):
+    centroids_orig = scaler.inverse_transform(km.cluster_centers_)
+    popularity = centroids_orig[:, 0]
+    sorted_idx = np.argsort(popularity)
+    relabel_map = {old_idx: new_idx for new_idx, old_idx in enumerate(sorted_idx)}
+    km.cluster_centers_ = km.cluster_centers_[sorted_idx]
+    return np.array([relabel_map[int(lbl)] for lbl in labels], dtype=int)
+
+
 kmeans_k6, labels_k6, sil_k6 = fit_kmeans_k6(spotify_scaled)
+labels_k6 = relabel_kmeans_by_popularity(kmeans_k6, labels_k6, scaler)
 
 # ─── Cluster names & descriptions (hardcoded) ─────────────────────────────────
 
 CLUSTER_NAMES = {
-    0: "Mainstream Pop",
+    0: "Live Spoken",
     1: "Ambient / Instrumental",
-    2: "Live Spoken",
-    3: "Live Energetic",
-    4: "Ambient Live",
-    5: "Dance / Party",
+    2: "Ambient Live",
+    3: "Dance / Party",
+    4: "Mainstream Pop",
+    5: "Live Energetic",
 }
 
 CLUSTER_DESCRIPTIONS = {
-    0: ("High popularity and strong danceability with moderate energy. "
-        "The core of commercial pop music — polished, broad-appeal tracks."),
+    0: ("Elevated liveness and speechiness signal recordings with a strong spoken "
+        "or vocal presence — live sets, podcasts, comedy, or spoken-word tracks."),
     1: ("Highly instrumental with low energy. Classical, ambient, and acoustic "
         "music with minimal or no vocals."),
-    2: ("Elevated liveness and speechiness signal recordings with a strong spoken "
-        "or vocal presence — live sets, podcasts, comedy, or spoken-word tracks."),
-    3: ("High liveness combined with high energy. Concert recordings, live rock, "
-        "or any performance with a crowd and intensity."),
-    4: ("Moderate-to-high liveness with low energy and high instrumentalness. "
+    2: ("Moderate-to-high liveness with low energy and high instrumentalness. "
         "Quiet live sessions, acoustic sets, or ambient field recordings."),
-    5: ("Maximum danceability, high valence, and strong energy. "
+    3: ("Maximum danceability, high valence, and strong energy. "
         "The dance floor — electronic, house, funk, and feel-good party tracks."),
+    4: ("High popularity and strong danceability with moderate energy. "
+        "The core of commercial pop music — polished, broad-appeal tracks."),
+    5: ("High liveness combined with high energy. Concert recordings, live rock, "
+        "or any performance with a crowd and intensity."),
 }
 
 # ─── Tabs ─────────────────────────────────────────────────────────────────────
@@ -403,8 +413,12 @@ with tab3:
         results = search_df[mask].copy()
 
         if cluster_filter:
-            cluster_nums = [int(c.split("·")[0].replace("C", "").strip()) for c in cluster_filter]
+            cluster_name_to_id = {name: idx for idx, name in CLUSTER_NAMES.items()}
+            cluster_nums = [cluster_name_to_id[c] for c in cluster_filter if c in cluster_name_to_id]
             results = results[results["cluster"].isin(cluster_nums)]
+
+        results = results.sort_values("popularity", ascending=False)
+        results = results.drop_duplicates(subset=["track", "artists"], keep="first")
 
         if results.empty:
             st.warning("No tracks found. Try a different search term.")
